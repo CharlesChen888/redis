@@ -9838,6 +9838,69 @@ struct COMMAND_ARG XSETID_Args[] = {
 {MAKE_ARG("max-deleted-id",ARG_TYPE_STRING,-1,"MAXDELETEDID",NULL,"7.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 };
 
+/********** XSUBSCRIBE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* XSUBSCRIBE history */
+#define XSUBSCRIBE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* XSUBSCRIBE tips */
+#define XSUBSCRIBE_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* XSUBSCRIBE key specs */
+keySpec XSUBSCRIBE_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,2}}
+};
+#endif
+
+/* XSUBSCRIBE argument table */
+struct COMMAND_ARG XSUBSCRIBE_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/********** XSUBSCRIBEGROUP ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* XSUBSCRIBEGROUP history */
+#define XSUBSCRIBEGROUP_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* XSUBSCRIBEGROUP tips */
+#define XSUBSCRIBEGROUP_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* XSUBSCRIBEGROUP key specs */
+keySpec XSUBSCRIBEGROUP_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",4},KSPEC_FK_RANGE,.fk.range={-1,1,2}}
+};
+#endif
+
+/* XSUBSCRIBEGROUP group_block argument table */
+struct COMMAND_ARG XSUBSCRIBEGROUP_group_block_Subargs[] = {
+{MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* XSUBSCRIBEGROUP streams argument table */
+struct COMMAND_ARG XSUBSCRIBEGROUP_streams_Subargs[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* XSUBSCRIBEGROUP argument table */
+struct COMMAND_ARG XSUBSCRIBEGROUP_Args[] = {
+{MAKE_ARG("group-block",ARG_TYPE_BLOCK,-1,"GROUP",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XSUBSCRIBEGROUP_group_block_Subargs},
+{MAKE_ARG("noack",ARG_TYPE_PURE_TOKEN,-1,"NOACK",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("streams",ARG_TYPE_BLOCK,-1,"STREAMS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XSUBSCRIBEGROUP_streams_Subargs},
+};
+
 /********** XTRIM ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -9885,6 +9948,30 @@ struct COMMAND_ARG XTRIM_trim_Subargs[] = {
 struct COMMAND_ARG XTRIM_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=XTRIM_trim_Subargs},
+};
+
+/********** XUNSUBSCRIBE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* XUNSUBSCRIBE history */
+#define XUNSUBSCRIBE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* XUNSUBSCRIBE tips */
+#define XUNSUBSCRIBE_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* XUNSUBSCRIBE key specs */
+keySpec XUNSUBSCRIBE_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
+};
+#endif
+
+/* XUNSUBSCRIBE argument table */
+struct COMMAND_ARG XUNSUBSCRIBE_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 };
 
 /********** APPEND ********************/
@@ -10810,7 +10897,10 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("xreadgroup","Returns new or historical messages from a stream for a consumer in a group. Blocks until a message is available otherwise.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREADGROUP_History,0,XREADGROUP_Tips,0,xreadCommand,-7,CMD_BLOCKING|CMD_WRITE,ACL_CATEGORY_STREAM,XREADGROUP_Keyspecs,1,xreadGetKeys,5),.args=XREADGROUP_Args},
 {MAKE_CMD("xrevrange","Returns the messages from a stream within a range of IDs in reverse order.","O(N) with N being the number of elements returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREVRANGE_History,1,XREVRANGE_Tips,0,xrevrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_STREAM,XREVRANGE_Keyspecs,1,NULL,4),.args=XREVRANGE_Args},
 {MAKE_CMD("xsetid","An internal command for replicating stream values.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XSETID_History,1,XSETID_Tips,0,xsetidCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,XSETID_Keyspecs,1,NULL,4),.args=XSETID_Args},
+{MAKE_CMD("xsubscribe","Listen for messages published to the given streams","O(N) where N is the number of streams to subscribe to.","7.2.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XSUBSCRIBE_History,0,XSUBSCRIBE_Tips,0,xsubscribeCommand,-3,CMD_READONLY|CMD_NOSCRIPT,ACL_CATEGORY_STREAM,XSUBSCRIBE_Keyspecs,1,NULL,2),.args=XSUBSCRIBE_Args},
+{MAKE_CMD("xsubscribegroup","Listen for messages published to the given streams using consumer group","O(N) where N is the number of streams to subscribe to.","7.2.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XSUBSCRIBEGROUP_History,0,XSUBSCRIBEGROUP_Tips,0,xsubscribegroupCommand,-7,CMD_WRITE|CMD_NOSCRIPT,ACL_CATEGORY_STREAM,XSUBSCRIBEGROUP_Keyspecs,1,NULL,3),.args=XSUBSCRIBEGROUP_Args},
 {MAKE_CMD("xtrim","Deletes messages from the beginning of a stream.","O(N), with N being the number of evicted entries. Constant times are very small however, since entries are organized in macro nodes containing multiple entries that can be released with a single deallocation.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XTRIM_History,1,XTRIM_Tips,1,xtrimCommand,-4,CMD_WRITE,ACL_CATEGORY_STREAM,XTRIM_Keyspecs,1,NULL,2),.args=XTRIM_Args},
+{MAKE_CMD("xunsubscribe","Stop listening for messages published to the given streams","O(N) where N is the number of streams to unsubscribe from.","7.2.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XUNSUBSCRIBE_History,0,XUNSUBSCRIBE_Tips,0,xunsubscribeCommand,-1,CMD_NOSCRIPT|CMD_READONLY,ACL_CATEGORY_STREAM,XUNSUBSCRIBE_Keyspecs,1,NULL,1),.args=XUNSUBSCRIBE_Args},
 /* string */
 {MAKE_CMD("append","Appends a string to the value of a key. Creates the key if it doesn't exist.","O(1). The amortized time complexity is O(1) assuming the appended value is small and the already present value is of any size, since the dynamic string library used by Redis will double the free space available on every reallocation.","2.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,APPEND_History,0,APPEND_Tips,0,appendCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,APPEND_Keyspecs,1,NULL,2),.args=APPEND_Args},
 {MAKE_CMD("decr","Decrements the integer value of a key by one. Uses 0 as initial value if the key doesn't exist.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,DECR_History,0,DECR_Tips,0,decrCommand,2,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,DECR_Keyspecs,1,NULL,1),.args=DECR_Args},

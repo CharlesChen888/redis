@@ -4036,3 +4036,355 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
 
     return 1;
 }
+
+/* -----------------------------------------------------------------------
+ * Stream pubsub commands
+ * ----------------------------------------------------------------------- */
+
+void addReplyStreamSubUnsubMessage(client *c, robj *key, int dbid, int sub) {
+    if (c->resp == 2) {
+        addReply(c, shared.mbulkhdr[3]);
+    } else {
+        addReplyPushLen(c, 3);
+    }
+    addReply(c, sub ? shared.xsubscribebulk : shared.xunsubscribebulk);
+    addReplyBulk(c, key);
+    addReplyLongLong(c, dbid);
+}
+
+void addReplyStreamSubGroupMessage(client *c, robj *key, int dbid, robj *group, robj *consumer) {
+    if (c->resp == 2) {
+        addReply(c, shared.mbulkhdr[5]);
+    } else {
+        addReplyPushLen(c, 5);
+    }
+    addReply(c, shared.xsubscribegroupbulk);
+    addReplyBulk(c, key);
+    addReplyLongLong(c, dbid);
+    addReplyBulk(c, group);
+    addReplyBulk(c, consumer);
+}
+
+/* XREAD key [key ...] id [id ...] */
+void xsubscribeCommand(client *c) {
+    /* A client that has CLIENT_DENY_BLOCKING flag on expect a reply per command. */
+    if (c->flags & CLIENT_DENY_BLOCKING) {
+        addReplyError(c, "XSUBSCRIBE isn't allowed for a DENY BLOCKING client");
+        return;
+    }
+    /* Variables. */
+    robj **keys = NULL;
+    int first_key_index = 0;
+    int key_cnt = 0;
+    /* Parse and check arguments. */
+    key_cnt = c->argc - 1;
+    if (key_cnt % 2 != 0) {
+        addReplyErrorFormat(c, "Unbalanced '%s' list of streams: for each stream key"
+                            "an ID or '$' must be specified.", c->cmd->fullname);
+        return;
+    }
+    if (key_cnt <= 0) {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return;
+    }
+    key_cnt /= 2;
+    first_key_index = 1;
+    keys = c->argv + 1;
+    /* Find streams, parse ids, check syntax. */
+    stream **streams = zmalloc(sizeof(stream *) * key_cnt);
+    streamID *ids = zmalloc(sizeof(streamID) * key_cnt);
+    int error = 0;
+    for (int i = 0; i < key_cnt; i++) {
+        robj *o = lookupKeyRead(c->db, keys[i]);
+        if (checkType(c, o, OBJ_STREAM)) {
+            error = 1;
+            break;
+        }
+        streams[i] = o ? o->ptr : NULL;
+        if (strcmp(keys[i + key_cnt]->ptr, "$") == 0) {
+            if (streams[i]) {
+                ids[i] = streams[i]->last_id;
+            } else {
+                ids[i].ms = 0;
+                ids[i].seq = 0;
+            }
+        } else if (strcmp(keys[i + key_cnt]->ptr, ">") == 0) {
+            addReplyError(c,"The > ID can be specified only when calling "
+                          "XSUBSCRIBEGROUP using the GROUP <group> <consumer> option.");
+            error = 1;
+            break;
+        } else if (streamParseStrictIDOrReply(c, keys[i + key_cnt], ids + i, 0, NULL) != C_OK) {
+            error = 1;
+            break;
+        }
+    }
+    if (error) {
+        zfree(streams);
+        zfree(ids);
+        return;
+    }
+    /* Notify client. */
+    if (!(c->flags & CLIENT_SUBSCRIBE_BLOCKING)) {
+        for (int i = 0; i < key_cnt; i++) {
+            addReplyStreamSubUnsubMessage(c, keys[i], c->db->id, 1);
+        }
+    }
+    /* Feed the client with messages already stored in streams. */
+    uint64_t old_flags = c->flags;
+    c->flags |= CLIENT_PUSHING;
+    int served[key_cnt];
+    int array_len = 0;
+    void *array_len_ptr = NULL;
+    for (int i = 0; i < key_cnt; i++) {
+        served[i] = 0;
+        if (streams[i] == NULL || streams[i]->length == 0) {
+            continue;
+        }
+        streamID max_id;
+        streamLastValidID(streams[i], &max_id);
+        if (streamCompareID(&max_id, ids + i) > 0) {
+            array_len++;
+            if (array_len == 1) {
+                if (c->resp == 2) {
+                    addReply(c, shared.mbulkhdr[2]);
+                } else {
+                    addReplyPushLen(c, 2);
+                }
+                addReply(c, shared.xmessagebulk);
+                array_len_ptr = addReplyDeferredLen(c);
+            }
+            if (c->resp == 2) {
+                addReply(c, shared.mbulkhdr[3]);
+            } else {
+                addReplyPushLen(c, 3);
+            }
+            addReplyBulk(c, keys[i]);
+            addReplyLongLong(c, c->db->id);
+            streamID start = ids[i];
+            streamIncrID(&start);
+            streamReplyWithRange(c, streams[i], &start, NULL, 0, 0, NULL, NULL, 0, NULL);
+            served[i] = 1;
+        }
+    }
+    if (array_len) {
+        if (c->resp == 2) {
+            setDeferredArrayLen(c, array_len_ptr, array_len);
+        } else {
+            setDeferredMapLen(c, array_len_ptr, array_len);
+        }
+    }
+    if (!(old_flags & CLIENT_PUSHING)) {
+        c->flags &= ~CLIENT_PUSHING;
+    }
+    /* Block for future messages. */
+    for (int i = 0; i < key_cnt; i++) {
+        int arg_index = i + first_key_index + key_cnt;
+        if (served[i] || strcmp(c->argv[arg_index]->ptr, "$") == 0) {
+            robj *argv_streamid = createObjectFromStreamID(&streams[i]->last_id);
+            rewriteClientCommandArgument(c, arg_index, argv_streamid);
+            decrRefCount(argv_streamid);
+        }
+    }
+    blockForKeys(c, BLOCKED_STREAM, keys, key_cnt, 0, 0);
+    c->flags |= CLIENT_SUBSCRIBE_BLOCKING;
+    /* Free */
+    zfree(streams);
+    zfree(ids);
+}
+
+/* XREADGROUP GROUP group consumer [NOACK] STREAMS key [key ...] id [id ...] */
+void xsubscribegroupCommand(client *c) {
+    /* A client that has CLIENT_DENY_BLOCKING flag on expect a reply per command. */
+    if (c->flags & CLIENT_DENY_BLOCKING) {
+        addReplyError(c, "XSUBSCRIBE isn't allowed for a DENY BLOCKING client");
+        return;
+    }
+    /* Variables. */
+    robj *group_name = NULL;
+    robj *consumer_name = NULL;
+    int noack = 0;
+    robj **keys = NULL;
+    int first_key_index = 0;
+    int key_cnt = 0;
+    /* Parse and check arguments. */
+    for (int i = 1; i < c->argc; i++) {
+        int more_args = c->argc - 1 - i;
+        char *arg = c->argv[i]->ptr;
+        if (!strcasecmp(arg, "STREAMS") && more_args) {
+            key_cnt = c->argc - i - 1;
+            if (key_cnt % 2 != 0) {
+                addReplyErrorFormat(c, "Unbalanced '%s' list of streams: for each stream key"
+                                    "an ID or '>' must be specified.", c->cmd->fullname);
+                return;
+            }
+            if (key_cnt <= 0) {
+                addReplyErrorObject(c, shared.syntaxerr);
+                return;
+            }
+            key_cnt /= 2;
+            first_key_index = i + 1;
+            keys = c->argv + i + 1;
+            break;
+        } else if (!strcasecmp(arg, "GROUP") && more_args >= 2) {
+            group_name = c->argv[i + 1];
+            consumer_name = c->argv[i + 2];
+            i += 2;
+        } else if (!strcasecmp(arg, "NOACK")) {
+            noack = 1;
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
+    }
+    if (group_name == NULL) {
+        addReplyError(c, "Missing GROUP option for XSUBSCRIBEGROUP");
+        return;
+    }
+    /* Find streams and groups, parse ids, check syntax. */
+    stream **streams = zmalloc(sizeof(stream *) * key_cnt);
+    streamID *ids = zmalloc(sizeof(streamID) * key_cnt);
+    streamCG **groups = group_name ? zmalloc(sizeof(streamCG *) * key_cnt) : NULL;
+    int error = 0;
+    for (int i = 0; i < key_cnt; i++) {
+        robj *o = lookupKeyRead(c->db, keys[i]);
+        if (checkType(c, o, OBJ_STREAM)) {
+            error = 1;
+            break;
+        }
+        streams[i] = o ? o->ptr : NULL;
+        if (strcmp(keys[i + key_cnt]->ptr, "$") == 0) {
+            addReplyError(c, "The $ ID is meaningless in the context of "
+                            "XGROUP: you want to read the history of "
+                            "this consumer by specifying a proper ID, or "
+                            "use the > ID to get new messages. The $ ID would "
+                            "just return an empty result set.");
+            error = 1;
+            break;
+        } else if (strcmp(keys[i + key_cnt]->ptr, ">") == 0) {
+            ids[i].ms = UINT64_MAX;
+            ids[i].seq = UINT64_MAX;
+        } else if (streamParseStrictIDOrReply(c, keys[i + key_cnt], ids + i, 0, NULL) != C_OK) {
+            error = 1;
+            break;
+        }
+        groups[i] = streams[i] ? streamLookupCG(streams[i], group_name->ptr) : NULL;
+        if (groups[i] == NULL) {
+            addReplyErrorFormat(c, "-NOGROUP No such key '%s' or consumer group '%s' in XSUBSCRIBEGROUP",
+                                (char *)keys[i]->ptr, (char *)group_name->ptr);
+            error = 1;
+            break;
+        }
+    }
+    if (error) {
+        zfree(streams);
+        zfree(ids);
+        zfree(groups);
+        return;
+    }
+    /* Notify client. */
+    if (!(c->flags & CLIENT_SUBSCRIBE_BLOCKING)) {
+        for (int i = 0; i < key_cnt; i++) {
+            addReplyStreamSubGroupMessage(c, keys[i], c->db->id, group_name, consumer_name);
+        }
+    }
+    /* Prepare new argv for next round of executing this command. */
+    robj **new_argv = zmalloc(sizeof(robj *) * c->argc);
+    for (int i = 0; i < c->argc; i++) {
+        new_argv[i] = c->argv[i];
+        incrRefCount(new_argv[i]);
+    }
+    /* Feed the client with messages already stored in streams. */
+    uint64_t old_flags = c->flags;
+    c->flags |= CLIENT_PUSHING;
+    int served[key_cnt];
+    int array_len = 0;
+    void *array_len_ptr = NULL;
+    for (int i = 0; i < key_cnt; i++) {
+        served[i] = 0;
+        if (streams[i] == NULL) {
+            continue;
+        }
+        streamConsumer *consumer = streamLookupConsumer(groups[i], consumer_name->ptr);
+        if (consumer == NULL) {
+            consumer = streamCreateConsumer(groups[i], consumer_name->ptr, keys[i], c->db->id, SCC_DEFAULT);
+            if (noack) {
+                streamPropagateConsumerCreation(c, keys[i], group_name, consumer->name);
+            }
+        }
+        consumer->seen_time = commandTimeSnapshot();
+        if (streams[i]->length == 0) {
+            continue;
+        }
+        int reply_immediately = 0;
+        streamID start;
+        streamID max_id;
+        streamLastValidID(streams[i], &max_id);
+        if (ids[i].ms != UINT64_MAX || ids[i].seq != UINT64_MAX) {
+            start = streamCompareID(ids + i, &groups[i]->last_id) < 0 ? groups[i]->last_id : ids[i];
+            if (streamCompareID(&start, &max_id) < 0) {
+                reply_immediately = 1;
+            }
+        } else if (streamCompareID(&max_id, &groups[i]->last_id) > 0) {
+            reply_immediately = 1;
+            start = groups[i]->last_id;
+        }
+        if (!reply_immediately) {
+            continue;
+        }
+        array_len++;
+        if (array_len == 1) {
+            if (c->resp == 2) {
+                addReply(c, shared.mbulkhdr[2]);
+            } else {
+                addReplyPushLen(c, 2);
+            }
+            addReply(c, shared.xmessagebulk);
+            array_len_ptr = addReplyDeferredLen(c);
+        }
+        if (c->resp == 2) {
+            addReply(c, shared.mbulkhdr[5]);
+        } else {
+            addReplyPushLen(c, 5);
+        }
+        addReplyBulk(c, keys[i]);
+        addReplyLongLong(c, c->db->id);
+        addReplyBulk(c, group_name);
+        addReplyBulk(c, consumer_name);
+        streamIncrID(&start);
+        int flag = noack ? STREAM_RWR_NOACK : 0;
+        streamPropInfo spi = {keys[i], group_name};      
+        streamReplyWithRange(c, streams[i], &start, NULL, 0, 0, groups[i], consumer, flag, &spi);
+        server.dirty++;
+        served[i] = 1;
+    }
+    if (array_len) {
+        if (c->resp == 2) {
+            setDeferredArrayLen(c, array_len_ptr, array_len);
+        } else {
+            setDeferredMapLen(c, array_len_ptr, array_len);
+        }
+    }
+    if (!(old_flags & CLIENT_PUSHING)) {
+        c->flags &= ~CLIENT_PUSHING;
+    }
+    /* Block for future messages. */
+    for (int i = 0; i < key_cnt; i++) {
+        int arg_index = i + first_key_index + key_cnt;
+        if (served[i] || strcmp(c->argv[arg_index]->ptr, ">") == 0) {
+            robj *argv_streamid = createObjectFromStreamID(&groups[i]->last_id);
+            rewriteClientCommandArgument(c, arg_index, argv_streamid);
+            decrRefCount(argv_streamid);
+        }
+    }
+    blockForKeys(c, BLOCKED_STREAM, keys, key_cnt, 0, 1);
+    c->flags |= CLIENT_SUBSCRIBE_BLOCKING;
+    /* Free */
+    zfree(streams);
+    zfree(ids);
+    zfree(groups);
+}
+
+/* XUNSUBSCRIBE [key ...] */
+void xunsubscribeCommand(client *c) {
+
+}

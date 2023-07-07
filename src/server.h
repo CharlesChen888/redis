@@ -400,6 +400,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                                     auth had been authenticated from the Module. */
 #define CLIENT_MODULE_PREVENT_AOF_PROP (1ULL<<48) /* Module client do not want to propagate to AOF */
 #define CLIENT_MODULE_PREVENT_REPL_PROP (1ULL<<49) /* Module client do not want to propagate to replica */
+#define CLIENT_SUBSCRIBE_BLOCKING (1ULL<<50) /* The client is blocked but still allow key subscribe commands. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -1322,7 +1323,8 @@ struct sharedObjectsStruct {
     *time, *pxat, *absttl, *retrycount, *force, *justid, *entriesread,
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer,
     *getack, *special_asterick, *special_equals, *default_username, *redacted,
-    *ssubscribebulk,*sunsubscribebulk, *smessagebulk,
+    *ssubscribebulk,*sunsubscribebulk, *smessagebulk, *xsubscribebulk, 
+    *xsubscribegroupbulk, *xunsubscribebulk, *xmessagebulk,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -3680,6 +3682,9 @@ void xautoclaimCommand(client *c);
 void xinfoCommand(client *c);
 void xdelCommand(client *c);
 void xtrimCommand(client *c);
+void xsubscribeCommand(client *c);
+void xsubscribegroupCommand(client *c);
+void xunsubscribeCommand(client *c);
 void lolwutCommand(client *c);
 void aclCommand(client *c);
 void lcsCommand(client *c);

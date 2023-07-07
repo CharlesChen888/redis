@@ -1,0 +1,51 @@
+{
+    "XSUBSCRIBE": {
+        "summary": "Listen for messages published to the given streams",
+        "complexity": "O(N) where N is the number of streams to subscribe to.",
+        "group": "stream",
+        "since": "7.2.0",
+        "arity": -3,
+        "function": "xsubscribeCommand",
+        "history": [],
+        "command_flags": [
+            "READONLY",
+            "NOSCRIPT"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -1,
+                        "step": 1,
+                        "limit": 2
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0,
+                "multiple": true
+            },
+            {
+                "name": "ID",
+                "type": "string",
+                "multiple": true
+            }
+        ]
+    }
+}

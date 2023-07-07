@@ -388,7 +388,8 @@ int cmdHasPushAsReply(struct redisCommand *cmd) {
     if (!cmd) return 0;
     return cmd->proc == subscribeCommand  || cmd->proc == unsubscribeCommand ||
            cmd->proc == psubscribeCommand || cmd->proc == punsubscribeCommand ||
-           cmd->proc == ssubscribeCommand || cmd->proc == sunsubscribeCommand;
+           cmd->proc == ssubscribeCommand || cmd->proc == sunsubscribeCommand ||
+           cmd->proc == xsubscribeCommand || cmd->proc == xsubscribegroupCommand;
 }
 
 void _addReplyToBufferOrList(client *c, const char *s, size_t len) {

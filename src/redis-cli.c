@@ -1924,11 +1924,13 @@ int isPubsubPush(redisReply *r) {
     char *str = r->element[0]->str;
     size_t len = r->element[0]->len;
     /* Check if it is [p|s][un]subscribe or [p|s]message, but even simpler, we
-     * just check that it ends with "message" or "subscribe". */
+     * just check that it ends with "message", "subscribe" or "subscribegroup". */
     return ((len >= strlen("message") &&
              !strcmp(str + len - strlen("message"), "message")) ||
             (len >= strlen("subscribe") &&
-             !strcmp(str + len - strlen("subscribe"), "subscribe")));
+             !strcmp(str + len - strlen("subscribe"), "subscribe")) ||
+            (len >= strlen("subscribegroup") &&
+             !strcmp(str + len - strlen("subscribegroup"), "subscribegroup")));
 }
 
 int isColorTerm(void) {
@@ -2429,10 +2431,13 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
     if (!strcasecmp(command,"monitor")) config.monitor_mode = 1;
     int is_subscribe = (!strcasecmp(command, "subscribe") ||
                         !strcasecmp(command, "psubscribe") ||
-                        !strcasecmp(command, "ssubscribe"));
+                        !strcasecmp(command, "ssubscribe") ||
+                        !strcasecmp(command, "xsubscribe") ||
+                        !strcasecmp(command, "xsubscribegroup"));
     int is_unsubscribe = (!strcasecmp(command, "unsubscribe") ||
                           !strcasecmp(command, "punsubscribe") ||
-                          !strcasecmp(command, "sunsubscribe"));
+                          !strcasecmp(command, "sunsubscribe") ||
+                          !strcasecmp(command, "xunsubscribe"));
     if (!strcasecmp(command,"sync") ||
         !strcasecmp(command,"psync")) config.slave_mode = 1;
 
@@ -2486,7 +2491,21 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
              * an in-band message is received, but these commands are confirmed
              * using push replies only. There is one push reply per channel if
              * channels are specified, otherwise at least one. */
-            num_expected_pubsub_push = argc > 1 ? argc - 1 : 1;
+            if (!strcasecmp(command, "xsubscribe")) {
+                num_expected_pubsub_push = argc > 1 ? ((argc - 1) / 2) : 1;
+            } else if (!strcasecmp(command, "xsubscribegroup")) {
+                for (int i = 4; i < argc; i++) {
+                    if (!strcasecmp(argv[i], "streams")) {
+                        num_expected_pubsub_push = (argc - 1 - i) / 2;
+                        break;
+                    }
+                }
+                if (num_expected_pubsub_push == 0) {
+                    num_expected_pubsub_push = 1;
+                }
+            } else {
+                num_expected_pubsub_push = argc > 1 ? argc - 1 : 1;
+            }
             /* Unset our default PUSH handler so this works in RESP2/RESP3 */
             redisSetPushCallback(context, NULL);
         }

@@ -1913,6 +1913,10 @@ void createSharedObjects(void) {
     shared.smessagebulk = createStringObject("$8\r\nsmessage\r\n", 14);
     shared.psubscribebulk = createStringObject("$10\r\npsubscribe\r\n",17);
     shared.punsubscribebulk = createStringObject("$12\r\npunsubscribe\r\n",19);
+    shared.xsubscribebulk = createStringObject("$10\r\nxsubscribe\r\n", 17);
+    shared.xsubscribegroupbulk = createStringObject("$15\r\nxsubscribegroup\r\n", 22);
+    shared.xunsubscribebulk = createStringObject("$12\r\nxunsubscribe\r\n", 19);
+    shared.xmessagebulk = createStringObject("$8\r\nxmessage\r\n", 14);
 
     /* Shared command names */
     shared.del = createStringObject("DEL",3);
